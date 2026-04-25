@@ -21,7 +21,7 @@ class TavusService:
         sources: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """
-        Create Tavus conversation session with source context
+        Create Tavus persona/conversation session with source context
         
         Args:
             notebook_title: Title of notebook
@@ -33,15 +33,30 @@ class TavusService:
         # Build context for avatar
         context = self._build_context(notebook_title, sources)
         
-        # Create conversation session
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
+        # Create persona with custom system prompt
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # First, create or get persona
+            persona_response = await client.post(
+                f"{self.base_url}/personas",
+                headers=self.headers,
+                json={
+                    "persona_name": f"Research Assistant: {notebook_title[:50]}",
+                    "default_replica_id": os.getenv("TAVUS_REPLICA_ID", "r12345"),
+                    "system_prompt": context
+                }
+            )
+            persona_response.raise_for_status()
+            persona_data = persona_response.json()
+            
+            persona_id = persona_data.get("persona_id")
+            
+            # Create conversation with this persona
+            conversation_response = await client.post(
                 f"{self.base_url}/conversations",
                 headers=self.headers,
                 json={
-                    "replica_id": os.getenv("TAVUS_REPLICA_ID", "default"),
+                    "persona_id": persona_id,
                     "conversation_name": f"Research: {notebook_title}",
-                    "conversational_context": context,
                     "properties": {
                         "max_call_duration": 600,  # 10 minutes
                         "participant_left_timeout": 60,
@@ -49,13 +64,14 @@ class TavusService:
                     }
                 }
             )
-            response.raise_for_status()
-            data = response.json()
+            conversation_response.raise_for_status()
+            conversation_data = conversation_response.json()
         
         return {
-            "session_id": data.get("conversation_id"),
-            "conversation_url": data.get("conversation_url"),
-            "status": data.get("status", "active")
+            "session_id": conversation_data.get("conversation_id"),
+            "conversation_url": conversation_data.get("conversation_url"),
+            "status": conversation_data.get("status", "active"),
+            "persona_id": persona_id
         }
     
     def _build_context(
@@ -63,29 +79,45 @@ class TavusService:
         notebook_title: str,
         sources: List[Dict[str, Any]]
     ) -> str:
-        """Build context string for avatar"""
+        """Build system prompt for Tavus persona"""
         context_parts = [
-            f"You are an expert research assistant discussing: {notebook_title}",
+            "<identity>",
+            f"You are an expert research assistant for the topic: {notebook_title}",
+            "You have deep knowledge of the research sources provided to you.",
+            "</identity>",
             "",
+            "<knowledge_base>",
             "You have access to the following research sources:",
             ""
         ]
         
         for idx, source in enumerate(sources[:10], 1):  # Top 10 sources
             context_parts.append(
-                f"{idx}. {source.get('title', 'Untitled')}\n"
-                f"   Summary: {source.get('summary', 'No summary')}\n"
-                f"   URL: {source.get('url', 'N/A')}"
+                f"Source {idx}: {source.get('title', 'Untitled')}\n"
+                f"Type: {source.get('type', 'unknown')}\n"
+                f"Summary: {source.get('summary', 'No summary available')}\n"
+                f"URL: {source.get('url', 'N/A')}\n"
             )
         
         context_parts.extend([
+            "</knowledge_base>",
             "",
-            "Instructions:",
-            "- Answer questions based on these sources",
-            "- Cite sources by number when relevant",
-            "- Be conversational and engaging",
-            "- If information is not in sources, say so clearly",
-            "- Provide actionable insights when possible"
+            "<instructions>",
+            "- Answer questions based on the research sources provided",
+            "- Always cite sources by number when referencing information (e.g., 'According to Source 3...')",
+            "- Be conversational, warm, and engaging",
+            "- If information is not in your sources, clearly state that",
+            "- Provide actionable insights and connections between sources when relevant",
+            "- Help users understand complex topics by breaking them down",
+            "- Ask clarifying questions if the user's query is ambiguous",
+            "</instructions>",
+            "",
+            "<personality>",
+            "- Knowledgeable but approachable",
+            "- Enthusiastic about the research topic",
+            "- Patient and thorough in explanations",
+            "- Proactive in suggesting related insights",
+            "</personality>"
         ])
         
         return "\n".join(context_parts)

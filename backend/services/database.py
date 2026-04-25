@@ -156,10 +156,6 @@ class DatabaseService:
         result = await self._request("GET", "notes", filters={"notebook_id": f"eq.{notebook_id}", "order": "pinned.desc,created_at.desc"})
         return result or []
 
-# Singleton instance
-db = DatabaseService()
-
-    
     # Research History
     async def create_research_history(
         self,
@@ -177,7 +173,7 @@ db = DatabaseService()
         }]
         result = await self._request("POST", "research_history", data=data, prefer="return=representation")
         return result[0] if result else None
-    
+
     async def update_research_history(
         self,
         history_id: str,
@@ -204,3 +200,7 @@ db = DatabaseService()
     
     async def delete_research_history_item(self, history_id: str):
         await self._request("DELETE", "research_history", filters={"id": f"eq.{history_id}"})
+
+
+# Singleton instance
+db = DatabaseService()

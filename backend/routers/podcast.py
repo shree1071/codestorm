@@ -25,12 +25,13 @@ async def generate_podcast(notebook_id: str, request: PodcastRequest):
     Generate podcast from notebook sources
     Returns script + real audio file
     """
-    # Get notebook and sources
+    # Get notebook
     notebook = await db.get_notebook(notebook_id)
     if not notebook:
         raise HTTPException(status_code=404, detail="Notebook not found")
     
-    sources = notebook.get("sources", [])
+    # Get sources from separate table
+    sources = await db.get_sources(notebook_id)
     if not sources:
         raise HTTPException(status_code=400, detail="No sources in notebook. Add sources first.")
     

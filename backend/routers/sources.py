@@ -29,18 +29,23 @@ class YouTubeSourceRequest(BaseModel):
 class GitHubSourceRequest(BaseModel):
     url: str
 
-@router.get("/{notebook_id}/sources", response_model=List[SourceResponse])
+@router.get("/{notebook_id}/sources")
 async def get_sources(notebook_id: str):
     """Get all sources for a notebook"""
     sources = await db.get_sources(notebook_id)
-    return [SourceResponse(**source) for source in sources]
+    print(f"[DEBUG] get_sources for notebook {notebook_id}: found {len(sources)} sources")
+    if sources:
+        print(f"[DEBUG] First source: {sources[0]}")
+    return {"sources": [SourceResponse(**source).dict() for source in sources]}
 
 @router.post("/{notebook_id}/sources/url", response_model=SourceResponse)
 async def add_url_source(notebook_id: str, request: URLSourceRequest):
     """Add URL source"""
     try:
+        print(f"[DEBUG] Extracting URL: {request.url}")
         # Extract content from URL
         extracted = await ingestion_service.extract_url(request.url)
+        print(f"[DEBUG] Extraction successful, title: {extracted['title']}")
         
         # Save to database
         source = await db.create_source(
@@ -52,9 +57,27 @@ async def add_url_source(notebook_id: str, request: URLSourceRequest):
             fulltext=extracted["content"],
             credibility_score=extracted.get("credibility_score", 5)
         )
+        print(f"[DEBUG] Source saved to database: {source['id']}")
+        
+        # Process with LightRAG in background
+        try:
+            from services.lightrag_service import lightrag_service
+            await lightrag_service.insert_document(
+                notebook_id=notebook_id,
+                content=extracted["content"],
+                metadata={"title": extracted["title"], "url": request.url}
+            )
+            print(f"[DEBUG] Content added to LightRAG knowledge graph")
+        except Exception as e:
+            print(f"[WARNING] LightRAG processing failed: {e}")
+            # Don't fail the whole request if LightRAG fails
         
         return SourceResponse(**source)
     except Exception as e:
+        import traceback
+        print(f"[ERROR] Failed to add URL source: {request.url}")
+        print(f"[ERROR] Exception: {str(e)}")
+        print(f"[ERROR] Traceback:\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Failed to extract URL: {str(e)}")
 
 @router.post("/{notebook_id}/sources/pdf", response_model=SourceResponse)
@@ -81,6 +104,18 @@ async def add_pdf_source(
             credibility_score=7  # PDFs generally credible
         )
         
+        # Process with LightRAG in background
+        try:
+            from services.lightrag_service import lightrag_service
+            await lightrag_service.insert_document(
+                notebook_id=notebook_id,
+                content=extracted["content"],
+                metadata={"title": extracted["title"]}
+            )
+            print(f"[DEBUG] PDF content added to LightRAG knowledge graph")
+        except Exception as e:
+            print(f"[WARNING] LightRAG processing failed: {e}")
+        
         return SourceResponse(**source)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
@@ -102,6 +137,18 @@ async def add_youtube_source(notebook_id: str, request: YouTubeSourceRequest):
             fulltext=extracted["transcript"],
             credibility_score=6
         )
+        
+        # Process with LightRAG in background
+        try:
+            from services.lightrag_service import lightrag_service
+            await lightrag_service.insert_document(
+                notebook_id=notebook_id,
+                content=extracted["transcript"],
+                metadata={"title": extracted["title"], "url": request.url}
+            )
+            print(f"[DEBUG] YouTube transcript added to LightRAG knowledge graph")
+        except Exception as e:
+            print(f"[WARNING] LightRAG processing failed: {e}")
         
         return SourceResponse(**source)
     except Exception as e:
@@ -125,6 +172,18 @@ async def add_text_source(notebook_id: str, request: TextSourceRequest):
             credibility_score=5
         )
         
+        # Process with LightRAG in background
+        try:
+            from services.lightrag_service import lightrag_service
+            await lightrag_service.insert_document(
+                notebook_id=notebook_id,
+                content=request.content,
+                metadata={"title": request.title}
+            )
+            print(f"[DEBUG] Text content added to LightRAG knowledge graph")
+        except Exception as e:
+            print(f"[WARNING] LightRAG processing failed: {e}")
+        
         return SourceResponse(**source)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to add text: {str(e)}")
@@ -146,6 +205,18 @@ async def add_github_source(notebook_id: str, request: GitHubSourceRequest):
             fulltext=extracted["content"],
             credibility_score=extracted.get("credibility_score", 8)
         )
+        
+        # Process with LightRAG in background
+        try:
+            from services.lightrag_service import lightrag_service
+            await lightrag_service.insert_document(
+                notebook_id=notebook_id,
+                content=extracted["content"],
+                metadata={"title": extracted["title"], "url": request.url}
+            )
+            print(f"[DEBUG] GitHub content added to LightRAG knowledge graph")
+        except Exception as e:
+            print(f"[WARNING] LightRAG processing failed: {e}")
         
         return SourceResponse(**source)
     except Exception as e:

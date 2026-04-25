@@ -43,7 +43,7 @@ class LLMService:
         max_tokens: int = 1000
     ) -> Dict[str, Any]:
         """
-        Send chat completion request
+        Send chat completion request with automatic fallback to Gemini
         
         Args:
             messages: List of message dicts with 'role' and 'content'
@@ -56,18 +56,37 @@ class LLMService:
         """
         model_name = self.models.get(model, model)
         
-        response = await acompletion(
-            model=model_name,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        
-        return {
-            "content": response.choices[0].message.content,
-            "model": model_name,
-            "usage": response.usage.model_dump() if response.usage else None
-        }
+        try:
+            response = await acompletion(
+                model=model_name,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            
+            return {
+                "content": response.choices[0].message.content,
+                "model": model_name,
+                "usage": response.usage.model_dump() if response.usage else None
+            }
+        except Exception as e:
+            # If OpenRouter fails (credits, etc), fallback to Gemini
+            if "credit" in str(e).lower() or "402" in str(e):
+                print(f"[FALLBACK] OpenRouter failed, using Gemini: {e}")
+                response = await acompletion(
+                    model="gemini/gemini-2.0-flash-exp",
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+                
+                return {
+                    "content": response.choices[0].message.content,
+                    "model": "gemini-2.0-flash (fallback)",
+                    "usage": response.usage.model_dump() if response.usage else None
+                }
+            else:
+                raise
     
     async def chat_with_context(
         self,

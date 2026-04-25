@@ -11,7 +11,7 @@ import SourcesPanel from '@/components/sources/SourcesPanel'
 import ChatPanel from '@/components/chat/ChatPanel'
 import FaceOffPanel from '@/components/faceoff/FaceOffPanel'
 import AvatarPanel from '@/components/avatar/AvatarPanel'
-import OutputsPanel from '@/components/outputs/OutputsPanel'
+import GraphPanel from '@/components/graph/GraphPanel'
 
 export default function NotebookPage() {
   const params = useParams()
@@ -22,15 +22,21 @@ export default function NotebookPage() {
   const [activeTab, setActiveTab] = useState('research')
 
   useEffect(() => {
-    loadNotebook()
+    console.log('[DEBUG] useEffect triggered, params.id:', params.id)
+    if (params.id) {
+      loadNotebook()
+    }
   }, [params.id])
 
   const loadNotebook = async () => {
+    console.log('[DEBUG] loadNotebook called with params.id:', params.id)
     try {
       const [notebookData, sourcesData] = await Promise.all([
         api.getNotebook(params.id),
         api.getSources(params.id)
       ])
+      console.log('[DEBUG] Notebook data:', notebookData)
+      console.log('[DEBUG] Sources data:', sourcesData)
       setNotebook(notebookData)
       setSources(sourcesData)
     } catch (error) {
@@ -104,10 +110,10 @@ export default function NotebookPage() {
           <TabsList className="grid w-full grid-cols-6 mb-6">
             <TabsTrigger value="research">Research</TabsTrigger>
             <TabsTrigger value="sources">Sources</TabsTrigger>
+            <TabsTrigger value="graph">Graph</TabsTrigger>
             <TabsTrigger value="chat">Chat</TabsTrigger>
             <TabsTrigger value="faceoff">Face-Off</TabsTrigger>
             <TabsTrigger value="avatar">Avatar</TabsTrigger>
-            <TabsTrigger value="outputs">Outputs</TabsTrigger>
           </TabsList>
 
           <TabsContent value="research" className="mt-0">
@@ -125,6 +131,13 @@ export default function NotebookPage() {
             />
           </TabsContent>
 
+          <TabsContent value="graph" className="mt-0">
+            <GraphPanel 
+              notebookId={params.id}
+              sources={sources}
+            />
+          </TabsContent>
+
           <TabsContent value="chat" className="mt-0">
             <ChatPanel 
               notebookId={params.id}
@@ -136,6 +149,12 @@ export default function NotebookPage() {
             <FaceOffPanel 
               notebookId={params.id}
               sources={sources}
+              onUseInChat={(question, answer, modelName) => {
+                // Switch to chat tab and show success message
+                setActiveTab('chat')
+                // The chat panel will need to handle this
+                console.log('Using answer from', modelName, 'in chat')
+              }}
             />
           </TabsContent>
 
@@ -143,13 +162,6 @@ export default function NotebookPage() {
             <AvatarPanel 
               notebookId={params.id}
               notebookTitle={notebook.title}
-              sources={sources}
-            />
-          </TabsContent>
-
-          <TabsContent value="outputs" className="mt-0">
-            <OutputsPanel 
-              notebookId={params.id}
               sources={sources}
             />
           </TabsContent>

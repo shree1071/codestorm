@@ -1,12 +1,15 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import json
-from services.agent import research_agent
 from services.database import db
 
 router = APIRouter()
+
+# DEPRECATED: Research is now handled directly from frontend via Tavily
+# This endpoint is kept for backward compatibility but should not be used
+# See frontend/src/lib/tavily.js for the new implementation
 
 class ResearchRequest(BaseModel):
     topic: str
@@ -15,74 +18,16 @@ class ResearchRequest(BaseModel):
 @router.get("/{notebook_id}/research")
 async def start_research(notebook_id: str, topic: str, depth: str = "deep"):
     """
-    Start deep research on a topic
-    Returns SSE stream of progress updates
+    DEPRECATED: Use Tavily directly from frontend
+    
+    This endpoint is no longer maintained. Research is now performed
+    client-side using the Tavily API for better performance.
+    
+    See: frontend/src/lib/tavily.js
     """
-    # Verify notebook exists
-    notebook = await db.get_notebook(notebook_id)
-    if not notebook:
-        raise HTTPException(status_code=404, detail="Notebook not found")
-    
-    # Save research query to history
-    research_history = await db.create_research_history(
-        notebook_id=notebook_id,
-        topic=topic,
-        depth=depth,
-        status="running"
-    )
-    history_id = research_history["id"]
-    
-    async def event_stream():
-        """Stream research progress as SSE"""
-        sources_found = 0
-        try:
-            async for update in research_agent.research(topic, depth):
-                # Send as SSE event
-                yield f"data: {json.dumps(update)}\n\n"
-                
-                # If source found, save to database
-                if update["type"] == "source":
-                    source = update["source"]
-                    await db.create_source(
-                        notebook_id=notebook_id,
-                        source_type="url",
-                        title=source["title"],
-                        url=source["url"],
-                        summary=source["summary"],
-                        fulltext=source["fulltext"],
-                        credibility_score=source["credibility_score"]
-                    )
-                    sources_found += 1
-                
-                # If complete, update history
-                if update["type"] == "complete":
-                    await db.update_research_history(
-                        history_id=history_id,
-                        status="completed",
-                        sources_found=sources_found
-                    )
-        except Exception as e:
-            # Update history with error
-            await db.update_research_history(
-                history_id=history_id,
-                status="failed",
-                sources_found=sources_found
-            )
-            error_update = {
-                "type": "error",
-                "message": f"Research failed: {str(e)}",
-                "progress": 0
-            }
-            yield f"data: {json.dumps(error_update)}\n\n"
-    
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
+    raise HTTPException(
+        status_code=410,
+        detail="This endpoint is deprecated. Use Tavily directly from frontend. See ARCHITECTURE.md"
     )
 
 

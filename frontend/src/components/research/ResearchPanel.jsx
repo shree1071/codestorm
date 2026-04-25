@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { api } from '@/lib/api'
+import { tavilySearch } from '@/lib/tavily'
 
 export default function ResearchPanel({ notebookId, onSourcesAdded }) {
   const [topic, setTopic] = useState('')
@@ -45,8 +46,23 @@ export default function ResearchPanel({ notebookId, onSourcesAdded }) {
       setSteps(['🔍 Searching the web with Tavily...'])
       setProgress(20)
 
-      // Call research API
-      const result = await api.startResearch(notebookId, topic, depth)
+      // Determine search parameters based on depth
+      const searchParams = {
+        quick: { maxResults: 5, searchDepth: 'basic' },
+        deep: { maxResults: 10, searchDepth: 'advanced' },
+        expert: { maxResults: 15, searchDepth: 'advanced' }
+      }[depth] || { maxResults: 10, searchDepth: 'advanced' }
+
+      // Call Tavily directly from frontend
+      const result = await tavilySearch(topic, {
+        ...searchParams,
+        includeAnswer: true,
+        includeRawContent: false
+      })
+
+      if (result.status === 'error') {
+        throw new Error(result.error)
+      }
 
       // Show analyzing step
       setSteps(prev => [...prev, `📄 Found ${result.results?.length || 0} results`])
@@ -66,7 +82,6 @@ export default function ResearchPanel({ notebookId, onSourcesAdded }) {
       setProgress(100)
       setSteps(prev => [...prev, `✅ Research complete! Found ${formattedSources.length} sources`])
       setResearching(false)
-      onSourcesAdded?.()
 
     } catch (error) {
       console.error('Research error:', error)

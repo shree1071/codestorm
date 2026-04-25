@@ -9,34 +9,39 @@ import io
 from youtube_transcript_api import YouTubeTranscriptApi
 import re
 from typing import Dict, Any, List
-from services.llm import llm_service
 import base64
+import trafilatura
+import os
 
 class IngestionService:
     async def extract_url(self, url: str) -> Dict[str, Any]:
-        """Extract content from URL"""
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, follow_redirects=True)
-            response.raise_for_status()
+        """Extract content from URL using Tavily Extract API"""
+        try:
+            from tavily import TavilyClient
             
-            soup = BeautifulSoup(response.text, 'html.parser')
+            # Get Tavily API key from environment
+            tavily_key = os.getenv("TAVILY_API_KEY")
+            if not tavily_key:
+                # Fallback to trafilatura if no Tavily key
+                return await self._extract_url_trafilatura(url)
             
-            # Extract title
-            title = soup.find('title')
-            title = title.get_text().strip() if title else url
+            # Use Tavily Python SDK
+            tavily_client = TavilyClient(api_key=tavily_key)
+            result = tavily_client.extract(url)
             
-            # Remove script and style elements
-            for script in soup(["script", "style"]):
-                script.decompose()
+            # Extract data from response
+            text = result.get("raw_content", "")
+            title = result.get("title", url)
             
-            # Get text
-            text = soup.get_text()
-            lines = (line.strip() for line in text.splitlines())
-            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-            text = ' '.join(chunk for chunk in chunks if chunk)
+            if not text.strip():
+                raise ValueError("No content could be extracted from URL")
             
             # Generate summary
-            summary = await self.summarize_text(text[:5000])  # First 5000 chars
+            try:
+                summary = await self.summarize_text(text[:5000])
+            except Exception as e:
+                print(f"Summary generation failed: {e}")
+                summary = text[:500] + "..." if len(text) > 500 else text
             
             return {
                 "title": title,
@@ -44,6 +49,51 @@ class IngestionService:
                 "summary": summary,
                 "credibility_score": self._score_url_credibility(url)
             }
+                
+        except Exception as e:
+            print(f"Tavily extraction failed for {url}: {e}, trying trafilatura...")
+            # Fallback to trafilatura
+            return await self._extract_url_trafilatura(url)
+    
+    async def _extract_url_trafilatura(self, url: str) -> Dict[str, Any]:
+        """Fallback URL extraction using trafilatura"""
+        try:
+            # Download content
+            downloaded = trafilatura.fetch_url(url)
+            if not downloaded:
+                raise ValueError("Failed to download URL")
+            
+            # Extract main content
+            text = trafilatura.extract(
+                downloaded,
+                include_comments=False,
+                include_tables=True,
+                no_fallback=False
+            )
+            
+            if not text or not text.strip():
+                raise ValueError("No content could be extracted from URL")
+            
+            # Extract metadata and title
+            metadata = trafilatura.extract_metadata(downloaded)
+            title = metadata.title if metadata and metadata.title else url
+            
+            # Generate summary (with fallback)
+            try:
+                summary = await self.summarize_text(text[:5000])  # First 5000 chars
+            except Exception as e:
+                print(f"Summary generation failed: {e}")
+                summary = text[:500] + "..." if len(text) > 500 else text
+            
+            return {
+                "title": title,
+                "content": text,
+                "summary": summary,
+                "credibility_score": self._score_url_credibility(url)
+            }
+        except Exception as e:
+            print(f"URL extraction failed for {url}: {e}")
+            raise
     
     async def extract_pdf(self, pdf_bytes: bytes, filename: str) -> Dict[str, Any]:
         """Extract text from PDF using PyPDF2"""
@@ -98,30 +148,33 @@ class IngestionService:
         }
     
     async def summarize_text(self, text: str) -> str:
-        """Generate summary of text using LLM"""
+        """Generate summary of text using Gemini directly"""
         if len(text) < 100:
             return text
         
         try:
-            response = await llm_service.chat(
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Summarize the following text in 2-3 sentences. Focus on key points."
-                    },
-                    {
-                        "role": "user",
-                        "content": text[:4000]  # Limit to 4000 chars
-                    }
-                ],
-                model="gpt-4",
-                temperature=0.3,
-                max_tokens=200
+            from google import genai
+            import os
+            
+            # Configure Gemini
+            api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+            if not api_key:
+                raise ValueError("No Gemini API key found")
+            
+            client = genai.Client(api_key=api_key)
+            
+            # Generate summary
+            prompt = f"Summarize the following text in 2-3 sentences. Focus on key points:\n\n{text[:4000]}"
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
             )
-            return response["content"]
+            
+            return response.text
         except Exception as e:
-            # Fallback to simple truncation if LLM fails
-            return text[:500] + "..."
+            print(f"Summarization failed: {e}")
+            # Return first 500 chars as summary
+            return text[:500] + "..." if len(text) > 500 else text
     
     def _score_url_credibility(self, url: str) -> int:
         """Score URL credibility 1-10"""

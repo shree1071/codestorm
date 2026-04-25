@@ -74,8 +74,10 @@ export const api = {
     await client.delete(`/api/notebooks/${notebookId}/sources/${sourceId}`)
   },
 
-  // Research
+  // Research - DEPRECATED: Now called directly from frontend via Tavily
+  // Kept for backward compatibility only
   startResearch: async (notebookId, topic, depth = 'deep') => {
+    console.warn('api.startResearch is deprecated. Use tavilySearch from @/lib/tavily instead')
     const { data } = await client.get(
       `/api/notebooks/${notebookId}/research`,
       { params: { topic, depth } }
@@ -104,8 +106,10 @@ export const api = {
     return data
   },
 
-  // Avatar
+  // Avatar - DEPRECATED: Now called directly from frontend via Tavus
+  // Kept for backward compatibility only
   createAvatarSession: async (notebookId) => {
+    console.warn('api.createAvatarSession is deprecated. Use createTavusSession from @/lib/tavus instead')
     const { data } = await client.post(`/api/notebooks/${notebookId}/avatar/session`)
     return data
   },
@@ -137,6 +141,32 @@ export const api = {
       ? `/api/notebooks/${notebookId}/outputs?output_type=${type}`
       : `/api/notebooks/${notebookId}/outputs`
     const { data } = await client.get(url)
+    return data
+  },
+
+  // Graph / Knowledge Graph
+  getGraphStats: async (notebookId) => {
+    const { data } = await client.get(`/api/notebooks/${notebookId}/graph/stats`)
+    return data
+  },
+
+  getGraphData: async (notebookId) => {
+    const { data } = await client.get(`/api/notebooks/${notebookId}/graph/data`)
+    return data
+  },
+
+  buildGraph: async (notebookId, rebuild = false) => {
+    const { data } = await client.post(`/api/notebooks/${notebookId}/graph/build`, { rebuild })
+    return data
+  },
+
+  queryGraph: async (notebookId, question, mode = 'mix') => {
+    const { data } = await client.post(`/api/notebooks/${notebookId}/graph/query`, { question, mode })
+    return data
+  },
+
+  deleteGraph: async (notebookId) => {
+    const { data } = await client.delete(`/api/notebooks/${notebookId}/graph`)
     return data
   },
 }

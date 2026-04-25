@@ -23,7 +23,7 @@ app.add_middleware(
 )
 
 # Import routers
-from routers import notebooks, sources, chat, research, faceoff, avatar, podcast, outputs, search
+from routers import notebooks, sources, chat, research, faceoff, avatar, podcast, outputs, search, graph
 
 # Register routers
 app.include_router(notebooks.router, prefix="/api/notebooks", tags=["notebooks"])
@@ -35,6 +35,7 @@ app.include_router(avatar.router, prefix="/api/notebooks", tags=["avatar"])
 app.include_router(podcast.router, prefix="/api/notebooks", tags=["podcast"])
 app.include_router(outputs.router, prefix="/api/notebooks", tags=["outputs"])
 app.include_router(search.router, prefix="/api", tags=["search"])
+app.include_router(graph.router, prefix="/api/notebooks", tags=["graph"])
 
 @app.get("/")
 async def root():

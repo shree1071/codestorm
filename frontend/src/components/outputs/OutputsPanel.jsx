@@ -79,22 +79,21 @@ export default function OutputsPanel({ notebookId, sources }) {
                   </select>
                 </div>
               </div>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                <p className="text-sm text-yellow-800 font-medium mb-1">
+                  🚧 Coming Soon
+                </p>
+                <p className="text-xs text-yellow-700">
+                  Podcast generation with ElevenLabs TTS will be added soon. For now, use the Avatar feature for voice conversations!
+                </p>
+              </div>
               <Button
-                onClick={() => generateOutput('podcast', () => api.generatePodcast(notebookId))}
-                disabled={loading.podcast || sources.length === 0}
+                disabled
                 className="w-full"
+                variant="outline"
               >
-                {loading.podcast ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    Generating Podcast...
-                  </>
-                ) : (
-                  <>
-                    <Headphones className="w-4 h-4 mr-2" />
-                    Generate Podcast
-                  </>
-                )}
+                <Headphones className="w-4 h-4 mr-2" />
+                Generate Podcast (Coming Soon)
               </Button>
 
               {outputs.podcast && (
