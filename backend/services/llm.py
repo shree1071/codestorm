@@ -70,19 +70,22 @@ class LLMService:
                 "usage": response.usage.model_dump() if response.usage else None
             }
         except Exception as e:
-            # If OpenRouter fails (credits, etc), fallback to Gemini
-            if "credit" in str(e).lower() or "402" in str(e):
-                print(f"[FALLBACK] OpenRouter failed, using Gemini: {e}")
+            # If OpenRouter fails (credits, auth, etc), fallback to Gemini
+            error_str = str(e).lower()
+            if any(word in error_str for word in ["credit", "402", "401", "user not found", "authentication"]):
+                print(f"[FALLBACK] OpenRouter failed ({e}), using Gemini directly")
+                # Use gemini-2.5-flash directly with Google API key
                 response = await acompletion(
-                    model="gemini/gemini-2.0-flash-exp",
+                    model="gemini-2.5-flash",
                     messages=messages,
                     temperature=temperature,
-                    max_tokens=max_tokens
+                    max_tokens=max_tokens,
+                    api_key=os.getenv("GOOGLE_API_KEY")
                 )
                 
                 return {
                     "content": response.choices[0].message.content,
-                    "model": "gemini-2.0-flash (fallback)",
+                    "model": "gemini-2.5-flash (fallback)",
                     "usage": response.usage.model_dump() if response.usage else None
                 }
             else:

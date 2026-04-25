@@ -1,11 +1,18 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Send, Loader2, Bot, User } from 'lucide-react'
+import { Send, Loader2, Bot, User, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { api } from '@/lib/api'
+import { Card, CardContent } from '@/components/ui/card'
+import { callModel, MODELS } from '@/lib/openrouter'
+
+// Map UI model selection to openrouter MODELS keys
+const MODEL_MAP = {
+  'gpt-4': 'GPT4',
+  'claude': 'CLAUDE',
+  'gemini': 'GEMINI',
+}
 
 export default function ChatPanel({ notebookId, sources }) {
   const [messages, setMessages] = useState([])
@@ -14,25 +21,29 @@ export default function ChatPanel({ notebookId, sources }) {
   const [model, setModel] = useState('gpt-4')
   const messagesEndRef = useRef(null)
 
+  // Load history from localStorage on mount / notebook change
   useEffect(() => {
-    loadHistory()
+    const stored = localStorage.getItem(`chat_history_${notebookId}`)
+    if (stored) {
+      try {
+        setMessages(JSON.parse(stored))
+      } catch {
+        setMessages([])
+      }
+    } else {
+      setMessages([])
+    }
   }, [notebookId])
 
+  // Scroll to bottom on new messages
   useEffect(() => {
-    scrollToBottom()
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
-
-  const loadHistory = async () => {
-    try {
-      const history = await api.getChatHistory(notebookId)
-      setMessages(history)
-    } catch (error) {
-      console.error('Failed to load chat history:', error)
-    }
+  // Persist messages to localStorage
+  const persistMessages = (msgs) => {
+    localStorage.setItem(`chat_history_${notebookId}`, JSON.stringify(msgs))
+    setMessages(msgs)
   }
 
   const sendMessage = async () => {
@@ -42,44 +53,51 @@ export default function ChatPanel({ notebookId, sources }) {
       return
     }
 
-    const userMessage = input
+    const userMessage = input.trim()
     setInput('')
     setLoading(true)
 
-    // Add user message optimistically
-    setMessages(prev => [...prev, {
+    const newUserMsg = {
       role: 'user',
       content: userMessage,
-      created_at: new Date().toISOString()
-    }])
+      created_at: new Date().toISOString(),
+    }
+    const updatedWithUser = [...messages, newUserMsg]
+    persistMessages(updatedWithUser)
 
     try {
-      const response = await api.sendMessage(notebookId, userMessage, model)
-      
-      // Add assistant response
-      setMessages(prev => [...prev, {
+      const modelKey = MODEL_MAP[model] || 'GPT4'
+      const modelConfig = MODELS[modelKey]
+      const result = await callModel(modelConfig.id, userMessage, sources)
+
+      const assistantMsg = {
         role: 'assistant',
-        content: response.content,
-        model: response.model,
-        citations: response.citations,
-        created_at: new Date().toISOString()
-      }])
+        content: result.content,
+        model: modelConfig.name,
+        citations: [],
+        created_at: new Date().toISOString(),
+      }
+      const updatedWithReply = [...updatedWithUser, assistantMsg]
+      persistMessages(updatedWithReply)
     } catch (error) {
-      console.error('Failed to send message:', error)
-      alert('Failed to send message')
+      console.error('Chat error:', error)
+      const errorMsg = {
+        role: 'assistant',
+        content: `⚠️ Error: ${error.message}`,
+        model: model,
+        citations: [],
+        created_at: new Date().toISOString(),
+      }
+      persistMessages([...updatedWithUser, errorMsg])
     } finally {
       setLoading(false)
     }
   }
 
-  const clearHistory = async () => {
+  const clearHistory = () => {
     if (!confirm('Clear all chat history?')) return
-    try {
-      await api.clearChatHistory(notebookId)
-      setMessages([])
-    } catch (error) {
-      console.error('Failed to clear history:', error)
-    }
+    localStorage.removeItem(`chat_history_${notebookId}`)
+    setMessages([])
   }
 
   return (
@@ -98,12 +116,13 @@ export default function ChatPanel({ notebookId, sources }) {
             onChange={(e) => setModel(e.target.value)}
             className="px-3 py-2 border rounded-md bg-background text-sm"
           >
-            <option value="gpt-4">GPT-4</option>
-            <option value="claude">Claude</option>
-            <option value="gemini">Gemini</option>
+            <option value="gpt-4">GPT-4o</option>
+            <option value="claude">Claude Sonnet</option>
+            <option value="gemini">Gemini Flash</option>
           </select>
           <Button variant="outline" size="sm" onClick={clearHistory}>
-            Clear History
+            <Trash2 className="w-4 h-4 mr-1" />
+            Clear
           </Button>
         </div>
       </div>
@@ -116,7 +135,7 @@ export default function ChatPanel({ notebookId, sources }) {
               <Bot className="w-12 h-12 text-muted-foreground mb-4" />
               <p className="text-lg font-medium mb-2">Start a conversation</p>
               <p className="text-muted-foreground">
-                Ask questions about your sources and I'll answer with citations
+                Ask questions about your sources and I'll answer based on them
               </p>
             </div>
           ) : (
@@ -139,6 +158,9 @@ export default function ChatPanel({ notebookId, sources }) {
                     }`}
                   >
                     <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    {message.model && message.role === 'assistant' && (
+                      <p className="text-xs opacity-50 mt-1">{message.model}</p>
+                    )}
                     {message.citations && message.citations.length > 0 && (
                       <div className="mt-2 pt-2 border-t border-border/50">
                         <p className="text-xs opacity-70 mb-1">Sources:</p>
@@ -168,7 +190,7 @@ export default function ChatPanel({ notebookId, sources }) {
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                     <Bot className="w-4 h-4 text-primary" />
                   </div>
-                  <div className="bg-muted rounded-lg px-4 py-2">
+                  <div className="bg-muted rounded-lg px-4 py-3">
                     <Loader2 className="w-4 h-4 animate-spin" />
                   </div>
                 </div>
@@ -182,10 +204,10 @@ export default function ChatPanel({ notebookId, sources }) {
       {/* Input */}
       <div className="flex gap-2 mt-4">
         <Input
-          placeholder="Ask a question about your sources..."
+          placeholder={sources.length === 0 ? 'Add sources first...' : 'Ask a question about your sources...'}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+          onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
           disabled={loading || sources.length === 0}
           className="flex-1"
         />
